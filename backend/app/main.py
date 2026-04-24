@@ -74,6 +74,7 @@ ambulances = [
 # Mock Emergency Requests
 emergencies = {}
 pending_queue = []
+last_dispatch_decision = {}
 
 async def complete_mission(ambulance_id: int, request_id: int, duration: float):
     """Simulate ambulance mission completion after travel time."""
@@ -110,11 +111,13 @@ async def process_queue_loop():
                 best_amb = None
                 min_time = float('inf')
                 best_route = None
+                all_etas = []
 
                 for amb in idle_ambs:
                     route = router.get_fastest_route(amb["location"], request["node"])
                     if route:
                         eta = router.calculate_eta(route)
+                        all_etas.append({"id": amb["id"], "eta": eta})
                         if eta < min_time:
                             min_time = eta
                             best_amb = amb
@@ -125,6 +128,29 @@ async def process_queue_loop():
                     best_amb["destination"] = request["node"]
                     request["assigned_ambulance_id"] = best_amb["id"]
                     request["status"] = "dispatched"
+                    
+                    # Update last dispatch decision for UI
+                    global last_dispatch_decision
+                    alternatives = []
+                    for item in all_etas:
+                        if item["id"] != best_amb["id"]:
+                            diff = (item["eta"] - min_time) / 60.0
+                            alternatives.append({
+                                "id": f"A{item['id']}",
+                                "eta_diff": f"+{diff:.1f}"
+                            })
+                    
+                    # Pick the best alternative
+                    alternatives = sorted(alternatives, key=lambda x: float(x["eta_diff"]))[:1]
+                    
+                    last_dispatch_decision = {
+                        "selected_ambulance": f"A{best_amb['id']}",
+                        "eta": f"{(min_time / 60.0):.1f} minutes",
+                        "reason": "Fastest route due to lower traffic",
+                        "traffic_considered": "Yes",
+                        "alternatives": alternatives,
+                        "timestamp": datetime.now().isoformat()
+                    }
                     
                     # Schedule completion
                     asyncio.create_task(complete_mission(best_amb["id"], request_id, min_time))
@@ -172,11 +198,13 @@ async def create_emergency(request: EmergencyRequest, background_tasks: Backgrou
     best_amb = None
     min_time = float('inf')
     best_route = None
+    all_etas = []
 
     for amb in idle_ambs:
         route = router.get_fastest_route(amb["location"], node)
         if route:
             eta = router.calculate_eta(route)
+            all_etas.append({"id": amb["id"], "eta": eta})
             if eta < min_time:
                 min_time = eta
                 best_amb = amb
@@ -187,6 +215,29 @@ async def create_emergency(request: EmergencyRequest, background_tasks: Backgrou
         best_amb["destination"] = node
         new_request["assigned_ambulance_id"] = best_amb["id"]
         new_request["status"] = "dispatched"
+        
+        # Update last dispatch decision for UI
+        global last_dispatch_decision
+        alternatives = []
+        for item in all_etas:
+            if item["id"] != best_amb["id"]:
+                diff = (item["eta"] - min_time) / 60.0
+                alternatives.append({
+                    "id": f"A{item['id']}",
+                    "eta_diff": f"+{diff:.1f}"
+                })
+        
+        # Pick the best alternative
+        alternatives = sorted(alternatives, key=lambda x: float(x["eta_diff"]))[:1]
+        
+        last_dispatch_decision = {
+            "selected_ambulance": f"A{best_amb['id']}",
+            "eta": f"{(min_time / 60.0):.1f} minutes",
+            "reason": "Fastest route due to lower traffic",
+            "traffic_considered": "Yes",
+            "alternatives": alternatives,
+            "timestamp": datetime.now().isoformat()
+        }
         
         # Schedule mission completion
         background_tasks.add_task(complete_mission, best_amb["id"], request_id, min_time)
@@ -246,6 +297,11 @@ async def get_ambulances():
             "lon": node_data['x']
         })
     return results
+
+@app.get("/last-dispatch")
+async def get_last_dispatch():
+    """Return the details of the most recent dispatch decision."""
+    return last_dispatch_decision
 
 @app.get("/prediction")
 async def get_prediction(hour: int = None, day: int = None):

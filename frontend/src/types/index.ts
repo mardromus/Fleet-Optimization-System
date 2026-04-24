@@ -32,3 +32,15 @@ export interface SystemMetrics {
   avg_eta: string;
   coverage: string;
 }
+
+export interface DispatchDecision {
+  selected_ambulance: string;
+  eta: string;
+  reason: string;
+  traffic_considered: string;
+  alternatives: {
+    id: string;
+    eta_diff: string;
+  }[];
+  timestamp: string;
+}

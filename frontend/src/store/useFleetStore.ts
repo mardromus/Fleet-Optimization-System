@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Ambulance, Prediction, EmergencyRequest, RouteData, SystemMetrics } from '../types';
+import { Ambulance, Prediction, EmergencyRequest, RouteData, SystemMetrics, DispatchDecision } from '../types';
 import axios from 'axios';
 
 interface FleetState {
@@ -9,6 +9,8 @@ interface FleetState {
   metrics: SystemMetrics;
   activeRoute: RouteData | null;
   dispatchMode: boolean;
+  showHeatmap: boolean;
+  lastDispatch: DispatchDecision | null;
   loading: boolean;
   error: string | null;
 
@@ -16,9 +18,11 @@ interface FleetState {
   fetchPredictions: () => Promise<void>;
   fetchEmergencies: () => Promise<void>;
   fetchMetrics: () => Promise<void>;
+  fetchLastDispatch: () => Promise<void>;
   createEmergency: (lat: number, lon: number, priority: string) => Promise<void>;
   resetSystem: () => Promise<void>;
   toggleDispatchMode: () => void;
+  toggleHeatmap: () => void;
   fetchRoute: (ambulanceId: number, destinationNode: number) => Promise<void>;
   clearRoute: () => void;
 }
@@ -32,6 +36,8 @@ export const useFleetStore = create<FleetState>((set, get) => ({
   metrics: { avg_eta: '0.0m', coverage: '0%' },
   activeRoute: null,
   dispatchMode: false,
+  showHeatmap: true,
+  lastDispatch: null,
   loading: false,
   error: null,
 
@@ -71,6 +77,17 @@ export const useFleetStore = create<FleetState>((set, get) => ({
     }
   },
 
+  fetchLastDispatch: async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/last-dispatch`);
+      if (res.data && res.data.selected_ambulance) {
+        set({ lastDispatch: res.data });
+      }
+    } catch (err) {
+      console.error('Failed to fetch last dispatch', err);
+    }
+  },
+
   createEmergency: async (lat, lon, priority) => {
     set({ loading: true });
     try {
@@ -92,6 +109,9 @@ export const useFleetStore = create<FleetState>((set, get) => ({
         emergencies: [newEmergency, ...state.emergencies],
         loading: false
       }));
+
+      // Immediately fetch the new dispatch decision
+      await get().fetchLastDispatch();
 
       // If a route was returned, fetch its full details
       if (res.data.route) {
@@ -127,6 +147,8 @@ export const useFleetStore = create<FleetState>((set, get) => ({
   },
 
   toggleDispatchMode: () => set(state => ({ dispatchMode: !state.dispatchMode })),
+
+  toggleHeatmap: () => set(state => ({ showHeatmap: !state.showHeatmap })),
 
   fetchRoute: async (ambulanceId, destinationNode) => {
     try {
